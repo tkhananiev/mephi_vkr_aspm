@@ -29,7 +29,7 @@ func New(cfg config.Config) (*App, error) {
 			"kafkaBrokerN": len(cfg.KafkaBrokers),
 		})
 		// #endregion
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		err := pkgkafka.EnsureTopics(ctx, cfg.KafkaBrokers, cfg.KafkaTopicIngest, cfg.KafkaTopicResult)
 		cancel()
 		if err != nil {

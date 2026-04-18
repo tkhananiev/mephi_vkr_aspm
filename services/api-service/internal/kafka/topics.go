@@ -4,17 +4,85 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
 
 	"mephi_vkr_aspm/services/api-service/internal/agentdebug"
 )
 
-// EnsureTopics создаёт топики (идемпотентно).
+// EnsureTopics создаёт топики (идемпотентно), с повторными попытками пока брокер Kafka поднимается (KRaft / compose race).
 func EnsureTopics(ctx context.Context, brokers []string, topicNames ...string) error {
 	if len(brokers) == 0 {
 		return errors.New("no kafka brokers")
 	}
+	const maxWait = 90 * time.Second
+	start := time.Now()
+	backoff := 500 * time.Millisecond
+	var lastErr error
+	for attempt := 1; time.Since(start) < maxWait; attempt++ {
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("ensure topics: %w (last error: %v)", ctx.Err(), lastErr)
+			}
+			return ctx.Err()
+		default:
+		}
+
+		attemptCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		err := ensureTopicsOnce(attemptCtx, brokers, topicNames...)
+		cancel()
+		if err == nil {
+			if attempt > 1 {
+				// #region agent log
+				agentdebug.Log("H1-fix", "internal/kafka/topics.go:EnsureTopics", "EnsureTopics succeeded after retry", map[string]any{
+					"attempts": attempt,
+				})
+				// #endregion
+			}
+			return nil
+		}
+		lastErr = err
+
+		if !isRetriableKafkaBootstrapErr(err) {
+			return err
+		}
+
+		// #region agent log
+		agentdebug.Log("H1", "internal/kafka/topics.go:EnsureTopics", "CreateTopics retry (broker starting)", map[string]any{
+			"attempt": attempt,
+			"error":   err.Error(),
+		})
+		// #endregion
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("ensure topics: %w (last error: %v)", ctx.Err(), lastErr)
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > 5*time.Second {
+			backoff = 5 * time.Second
+		}
+	}
+	return fmt.Errorf("kafka ensure topics: timeout after %s: %w", maxWait, lastErr)
+}
+
+func isRetriableKafkaBootstrapErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "broker not available") ||
+		strings.Contains(s, "leader not available") ||
+		strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "broken pipe") ||
+		strings.Contains(s, "no route to host")
+}
+
+func ensureTopicsOnce(ctx context.Context, brokers []string, topicNames ...string) error {
 	addr := kafkago.TCP(brokers[0])
 	cli := &kafkago.Client{Addr: addr}
 	topics := make([]kafkago.TopicConfig, len(topicNames))
@@ -30,12 +98,6 @@ func EnsureTopics(ctx context.Context, brokers []string, topicNames ...string) e
 		Topics: topics,
 	})
 	if err != nil {
-		// #region agent log
-		agentdebug.Log("H1", "internal/kafka/topics.go:EnsureTopics", "CreateTopics transport error", map[string]any{
-			"broker": brokers[0],
-			"error":  err.Error(),
-		})
-		// #endregion
 		return fmt.Errorf("create topics: %w", err)
 	}
 	for name, e := range resp.Errors {
@@ -47,7 +109,7 @@ func EnsureTopics(ctx context.Context, brokers []string, topicNames ...string) e
 		}
 		if name != "" {
 			// #region agent log
-			agentdebug.Log("H3", "internal/kafka/topics.go:EnsureTopics", "CreateTopics response error", map[string]any{
+			agentdebug.Log("H3", "internal/kafka/topics.go:ensureTopicsOnce", "CreateTopics response error", map[string]any{
 				"topic": name,
 				"error": e.Error(),
 			})
