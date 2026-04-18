@@ -3,11 +3,15 @@ package main
 import (
 	"log"
 
+	"mephi_vkr_aspm/services/api-service/internal/agentdebug"
 	"mephi_vkr_aspm/services/api-service/internal/app"
 	"mephi_vkr_aspm/services/api-service/internal/config"
 )
 
 func main() {
+	// #region agent log
+	agentdebug.Log("H4", "cmd/api-service/main.go:main", "api-service main entered", nil)
+	// #endregion
 	cfg := config.Load()
 	application, err := app.New(cfg)
 	if err != nil {

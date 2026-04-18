@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	kafkago "github.com/segmentio/kafka-go"
+
+	"mephi_vkr_aspm/services/api-service/internal/agentdebug"
 )
 
 // EnsureTopics создаёт топики (идемпотентно).
@@ -28,6 +30,12 @@ func EnsureTopics(ctx context.Context, brokers []string, topicNames ...string) e
 		Topics: topics,
 	})
 	if err != nil {
+		// #region agent log
+		agentdebug.Log("H1", "internal/kafka/topics.go:EnsureTopics", "CreateTopics transport error", map[string]any{
+			"broker": brokers[0],
+			"error":  err.Error(),
+		})
+		// #endregion
 		return fmt.Errorf("create topics: %w", err)
 	}
 	for name, e := range resp.Errors {
@@ -38,6 +46,12 @@ func EnsureTopics(ctx context.Context, brokers []string, topicNames ...string) e
 			continue
 		}
 		if name != "" {
+			// #region agent log
+			agentdebug.Log("H3", "internal/kafka/topics.go:EnsureTopics", "CreateTopics response error", map[string]any{
+				"topic": name,
+				"error": e.Error(),
+			})
+			// #endregion
 			return fmt.Errorf("topic %q: %w", name, e)
 		}
 	}
