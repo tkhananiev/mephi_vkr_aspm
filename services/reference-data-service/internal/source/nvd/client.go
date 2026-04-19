@@ -117,12 +117,6 @@ func (c *Client) SyncAllPages(ctx context.Context, onPage func([]models.SourceRe
 		}
 
 		total := payload.TotalResults
-		// #region agent log
-		debugLogNVD("H1", "nvd/client.go:SyncAllPages", "nvd_page", map[string]any{
-			"startIndex": startIndex, "totalResults": total, "resultsPerPage": payload.ResultsPerPage,
-			"chunkLen": len(chunk), "pageNum": pageNum, "pageSize": c.pageSize,
-		})
-		// #endregion
 
 		if len(chunk) > 0 {
 			if err := onPage(chunk); err != nil {
