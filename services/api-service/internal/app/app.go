@@ -55,7 +55,7 @@ func New(cfg config.Config) (*App, error) {
 	)
 
 	mux := http.NewServeMux()
-	handler := httpapi.New(orchestrator)
+	handler := httpapi.New(orchestrator, cfg.DefaultScanTargetPath, cfg.DefaultSemgrepConfig)
 	handler.Register(mux)
 
 	return &App{
